@@ -66,17 +66,20 @@ ul {
 }
 
 ul li {
-  padding-left: 1.5em;
-  text-indent: -1.5em;  
+  padding-left: 1em;
+  text-indent: -1em;
 }
 
 ul li:before {
   float: left;
   display: block;
   content: "►";
-  width: 3em;
+  width: 2em;
   font-size: 0.5em;
+  color: #888;
 }
+
+/*** layout ***/
 
 #logo {
   position: absolute;
@@ -100,4 +103,67 @@ ul li:before {
 
 #content {
   margin-top: 5em;
+}
+
+.interface {
+  font-family: Arial;
+}
+
+/*** animation ***/
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  } to {
+    transform: rotate(360deg);
+  }
+}
+
+/*** inputs etc. ***/
+
+textarea {
+  width: 100%;
+  border: 2px solid #ddd;
+  border-radius: 4px;
+  padding: 0.5em;
+  font-size: 20px;
+  color: #444;
+}
+
+button {
+  display: block;
+  margin-left: auto;
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+  min-width: 5em;
+  border: 2px solid #5EC997;
+  border-radius: 4px;
+  padding: 0.25em;
+  background-color: #5EC997;
+  color: white;
+  font-weight: bold;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+button:disabled {
+  border: 2px solid #92AB9F;
+  background-color: #92AB9F;
+  cursor: auto;
+}
+
+/*** posting ***/
+
+#post.is-posting textarea {
+  opacity: 0.5;
+  disabled: true;
+}
+
+#post.is-posting button span {
+  animation: spin 1s infinite linear;
+  display: block;
+}
+
+#post .error {
+  color: #F176A3;
 }
