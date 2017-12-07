@@ -89,7 +89,9 @@
                       (if (= state :posting) {:disabled true}))]
          (when (= state :error) [:p.error "Error: " (@post-ui :error)])
          [:button (if (and has-content? (not= state :posting)) {:on-click (partial post! post-ui account post)} {:disabled true})
-          [:span (if (= state :posting) "|" "Post")]]]))))
+          (if (= state :posting)
+            [:span.spinner " "]
+            [:span "Post"])]]))))
 
 (defn component-setup-profile [account]
   

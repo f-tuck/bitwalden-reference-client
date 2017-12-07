@@ -2,6 +2,11 @@
   box-sizing: border-box;
 }
 
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
 body {
   font-family: "Times New Roman";
   max-width: 740px;
@@ -12,6 +17,35 @@ body {
   color: #333;
   line-height: 1.5em;
 }
+
+#app {
+  height: 100%;
+}
+
+/*** loader ***/
+
+.spinner::before {
+  display: block;
+  animation: spinner 500ms infinite linear;
+  content: ":";
+  font-weight: bold;
+  color: #999;
+}
+
+@keyframes spinner {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+#loader::before {
+  font-size: 5em;
+  width: 100%;
+  margin: auto;
+  text-align: center;
+  margin-top: 50%;
+}
+
+/*** generic styles ***/
 
 h1, h2, h3 {
   color: #111;
@@ -159,9 +193,8 @@ button:disabled {
   disabled: true;
 }
 
-#post.is-posting button span {
-  animation: spin 1s infinite linear;
-  display: block;
+#post.is-posting .spinner::before {
+  color: white;
 }
 
 #post .error {
