@@ -12,16 +12,12 @@
 
 (def account-key "bitwalden-account")
 
-(defonce nodes (r/atom []))
-
 (defn load-account []
   (js->clj (js/JSON.parse (.getItem (aget js/window "localStorage") account-key))))
 
 (defn save-account! [account-data]
   (.setItem (aget js/window "localStorage") account-key (js/JSON.stringify (clj->js account-data)))
   account-data)
-
-(defonce account (r/atom (or (load-account) (accounts/make-empty-account))))
 
 (defn create-new-key [account ev]
   (let [seed (generate-keypair-seed-b58)
@@ -35,10 +31,11 @@
   (print "post!")
   (swap! post-ui assoc :state :posting)
   (go
-    (let [profile (@account "profile")
+    (let [nodes (@account "known-good-nodes")
+          profile (@account "profile")
           keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
           post-struct (accounts/make-post (random-hex 32) content)
-          node (rand-nth @nodes)
+          node (rand-nth nodes)
           _ (print "post-struct:" post-struct)
           _ (print "node:" node)
           post-response (<! (bitwalden/add-post! node keypair post-struct profile (@account "feed")))]
@@ -111,21 +108,22 @@
     [:h3 "reference client"]]
    [:div#content
     (cond
-      (not (@account "keys")) [component-setup-keys account]    
+      (not (@account "keys")) [component-setup-keys account]
       ;(not (@account "profile")) [component-setup-profile account]
       :else [component-interface account])]])
 
 ;; -------------------------
 ;; Initialize app
 
-; refresh the lists of nodes we know about
-(go
-  (when (= (count @nodes) 0)
-    (reset! nodes (<! (refresh-known-nodes))))
-  (print "known-nodes:" @nodes))
-
 (defn mount-root []
-  (r/render [component-container account] (.getElementById js/document "app")))
+  ; restore our account from localStorage
+  (let [account (r/atom (or (load-account) (accounts/make-empty-account)))]
+    ; refresh the lists of nodes we know about
+    (go
+      (when (= (count (@account "known-good-nodes")) 0)
+        (swap! account assoc "known-good-nodes" (<! (refresh-known-nodes))))
+      (print "known-nodes:" (@account "known-good-nodes"))
+      (r/render [component-container account] (.getElementById js/document "app")))))
 
 (defn init! []
   (mount-root))
