@@ -197,6 +197,6 @@ button:disabled {
   color: white;
 }
 
-#post .error {
+.error {
   color: #F176A3;
 }
