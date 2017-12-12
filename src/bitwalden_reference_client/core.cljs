@@ -12,6 +12,8 @@
 
 (def account-key "bitwalden-account")
 
+(defonce account-debug (atom nil))
+
 (defn load-account []
   (js->clj (js/JSON.parse (.getItem (aget js/window "localStorage") account-key))))
 
@@ -19,35 +21,50 @@
   (.setItem (aget js/window "localStorage") account-key (js/JSON.stringify (clj->js account-data)))
   account-data)
 
-(defn create-new-key [account ev]
+(defn update-account! [account profile feed]
+  (swap! account #(-> %
+                      (assoc-in ["public" "profile"] profile)
+                      (assoc-in ["public" "feed"] feed))))
+
+(defn bind-account-to-window! [account]
+  (reset! account-debug account)
+  (aset js/window "account" #(clj->js @account)))
+
+(defn create-new-key! [account ev]
   (let [seed (generate-keypair-seed-b58)
         keypair (keypair-from-seed-b58 seed)
         pk (public-key-b58-from-keypair keypair)]
-    (print seed keypair pk)
-    (swap! account assoc "keys" {"seed" seed "public-key" pk} "feed" (accounts/make-json-feed pk) "profile" (accounts/make-profile pk))
+    (swap! account #(-> %
+                        (assoc "keys" {"seed" seed "public-key" pk})
+                        (assoc-in ["public" "feed"] (accounts/make-json-feed pk))
+                        (assoc-in ["public" "profile"] (accounts/make-profile pk))))
     (save-account! @account)))
 
 (defn post! [post-ui account content ev]
   (print "post!")
   (swap! post-ui assoc :state :posting)
   (go
-    (let [nodes (@account "known-good-nodes")
-          profile (@account "profile")
+    (let [nodes (get-in @account ["cache" "known-good-nodes"])
+          profile (get-in @account ["public" "profile"])
+          feed (get-in @account ["public" "feed"])
           keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
           post-struct (accounts/make-post (random-hex 32) content)
           node (rand-nth nodes)
           _ (print "post-struct:" post-struct)
           _ (print "node:" node)
-          post-response (<! (bitwalden/add-post! node keypair post-struct profile (@account "feed")))]
+          post-response (<! (bitwalden/add-post! node keypair post-struct profile feed))]
       (print "response:" post-response)
       (if (post-response "error")
         (swap! post-ui assoc :state :error :error (post-response "message"))
         (do
-          (swap! account assoc "profile" (post-response :profile) "feed" (post-response :feed))
+          (update-account! account (post-response :profile) (post-response :feed))
           (swap! post-ui assoc :state nil :post "" :error nil)
           (save-account! @account)))))
   (.preventDefault ev)
   (.blur (.. ev -target)))
+
+(defn get-nodes [account-data]
+  (get-in account-data ["cache" "known-good-nodes"]))
 
 ;; -------------------------
 ;; Views
@@ -99,7 +116,18 @@
     [:div.interface
      [:h3 "You don't seem to have an account yet."]
      [:p "A Bitwalden account is simply a cryptographic key pair."]
-     [:button {:on-click (partial create-new-key account)} "Create a new key pair now"]]))
+     [:button {:on-click (partial create-new-key! account)} "Create a new key pair now"]]))
+
+(defn component-no-nodes [account-data]
+  [:div
+   [:p.error "Can't reach any Bitwalden nodes."]
+   (if (= (count (get-nodes account-data)) 0)
+     [:div "No nodes known."]
+     [:div
+      [:p "Tried:"]
+      [:ul
+       (doall (for [n (get-nodes account-data)]
+                [:li n]))]])])
 
 (defn component-container [account]
   [:div
@@ -108,6 +136,7 @@
     [:h3 "reference client"]]
    [:div#content
     (cond
+      (= (count (get-nodes @account)) 0) [component-no-nodes @account]
       (not (@account "keys")) [component-setup-keys account]
       ;(not (@account "profile")) [component-setup-profile account]
       :else [component-interface account])]])
@@ -116,13 +145,31 @@
 ;; Initialize app
 
 (defn mount-root []
+  (print "mount-root")
   ; restore our account from localStorage
-  (let [account (r/atom (or (load-account) (accounts/make-empty-account)))]
+  (let [account (r/atom (or (load-account) (accounts/make-empty-account)))
+        keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
+        public-key-base58 (get-in @account ["keys" "public-key"])]
+    ; in dev mode bind account to window
+    (bind-account-to-window! account)
+    (print "Loaded data:" public-key-base58)
     ; refresh the lists of nodes we know about
     (go
-      (when (= (count (@account "known-good-nodes")) 0)
-        (swap! account assoc "known-good-nodes" (<! (refresh-known-nodes))))
-      (print "known-nodes:" (@account "known-good-nodes"))
+      (when (= (count (get-nodes @account)) 0)
+        (print "Refreshing known-nodes list.")
+        (swap! account assoc-in ["cache" "known-good-nodes"] (<! (refresh-known-nodes))))
+      (print "Known-nodes:" (get-nodes @account))
+      ; update the user's own account
+      (when (and (get-nodes @account) keypair)
+        (print "Refreshing account feed & profile.")
+        (let [node (rand-nth (get-nodes @account))
+              refresh-response (<! (bitwalden/refresh-account node keypair public-key-base58))]
+          ; if response swap account
+          (print "Response:" refresh-response)
+          (when (not (refresh-response :error))
+            (update-account! account (refresh-response :profile) (refresh-response :feed)))))
+      (save-account! @account)
+      (print "profile:" (@account "public"))
       (r/render [component-container account] (.getElementById js/document "app")))))
 
 (defn init! []
