@@ -45,6 +45,14 @@ body {
   margin-top: 50%;
 }
 
+#indicator {
+  position: absolute;
+  top: 1em;
+  right: 1em;
+  font-size: 2em;
+  cursor: pointer;
+}
+
 /*** generic styles ***/
 
 h1, h2, h3 {

@@ -18,7 +18,7 @@
   (js->clj (js/JSON.parse (.getItem (aget js/window "localStorage") account-key))))
 
 (defn save-account! [account-data]
-  (.setItem (aget js/window "localStorage") account-key (js/JSON.stringify (clj->js account-data)))
+  (.setItem (aget js/window "localStorage") account-key (js/JSON.stringify (clj->js (dissoc account-data :state))))
   account-data)
 
 (defn update-account! [account profile feed]
@@ -37,8 +37,18 @@
     (swap! account #(-> %
                         (assoc "keys" {"seed" seed "public-key" pk})
                         (assoc-in ["public" "feed"] (accounts/make-json-feed pk))
-                        (assoc-in ["public" "profile"] (accounts/make-profile pk))))
+                        (assoc-in ["public" "profile"] (accounts/make-profile pk))
+                        (assoc-in ["private" "following"] ["TuckJdmdsXkjrh7rUPtPTDKp7SMhKnj918HT7zNKN2v" pk])))
     (save-account! @account)))
+
+(defn add-processing-item! [account id]
+  (swap! account update-in [:state :processing] #(into #{id} %)))
+
+(defn remove-processing-item! [account id]
+  (swap! account update-in [:state :processing] clojure.set/difference #{id}))
+
+(defn get-nodes [account-data]
+  (get-in account-data ["cache" "known-good-nodes"]))
 
 (defn post! [post-ui account content ev]
   (print "post!")
@@ -63,8 +73,30 @@
   (.preventDefault ev)
   (.blur (.. ev -target)))
 
-(defn get-nodes [account-data]
-  (get-in account-data ["cache" "known-good-nodes"]))
+(defn refresh-account [node keypair public-key-base58]
+  (go
+    (let [refresh-response (<! (bitwalden/refresh-account node keypair public-key-base58))]
+      ; if response swap account
+      (print "Response:" refresh-response)
+      (when (not (refresh-response :error))
+        [(refresh-response :profile) (refresh-response :feed)]))))
+
+(defn refresh-followers! [account]
+  (go
+    (let [keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
+          following (get-in @account ["private" "following"])]
+      (when (and (get-nodes @account) keypair)
+        (print "Refreshing follower accounts.")
+        (print "Following:" following)
+        ; TODO run these in parallel batches of 10
+        (doseq [public-key-base58 following]
+          (do
+            (print "Refreshing" public-key-base58)
+            (add-processing-item! account (str "Refreshing " public-key-base58))
+            (let [[profile feed] (<! (refresh-account (rand-nth (get-nodes @account)) keypair public-key-base58))]
+              (if (and profile feed)
+                (swap! account assoc-in ["cache" "following" public-key-base58] {"profile" profile "feed" feed}))
+              (remove-processing-item! account (str "Refreshing " public-key-base58)))))))))
 
 ;; -------------------------
 ;; Views
@@ -130,47 +162,55 @@
                 [:li n]))]])])
 
 (defn component-container [account]
-  [:div
-   [:div#logo
-    [:h2 "Bitwalden"]
-    [:h3 "reference client"]]
-   [:div#content
-    (cond
-      (= (count (get-nodes @account)) 0) [component-no-nodes @account]
-      (not (@account "keys")) [component-setup-keys account]
-      ;(not (@account "profile")) [component-setup-profile account]
-      :else [component-interface account])]])
+  (fn []
+    (let [processing (> (count (get-in @account [:state :processing])) 0)]
+      [:div
+       [:div#logo
+        [:h2 "Bitwalden"]
+        [:h3 "reference client"]]
+       (if processing
+         [:div#indicator.spinner]
+         [:div#indicator {:on-click #(refresh-followers! account)} "↺"])
+       [:div#content
+        (cond
+          (= (count (get-nodes @account)) 0) [component-no-nodes @account]
+          (not (@account "keys")) [component-setup-keys account]
+          ;(not (@account "profile")) [component-setup-profile account]
+          :else [component-interface account])]])))
 
 ;; -------------------------
 ;; Initialize app
 
-(defn mount-root []
-  (print "mount-root")
-  ; restore our account from localStorage
-  (let [account (r/atom (or (load-account) (accounts/make-empty-account)))
-        keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
-        public-key-base58 (get-in @account ["keys" "public-key"])]
-    ; in dev mode bind account to window
-    (bind-account-to-window! account)
-    (print "Loaded data:" public-key-base58)
-    ; refresh the lists of nodes we know about
-    (go
-      (when (= (count (get-nodes @account)) 0)
-        (print "Refreshing known-nodes list.")
-        (swap! account assoc-in ["cache" "known-good-nodes"] (<! (refresh-known-nodes))))
-      (print "Known-nodes:" (get-nodes @account))
-      ; update the user's own account
-      (when (and (get-nodes @account) keypair)
-        (print "Refreshing account feed & profile.")
-        (let [node (rand-nth (get-nodes @account))
-              refresh-response (<! (bitwalden/refresh-account node keypair public-key-base58))]
-          ; if response swap account
-          (print "Response:" refresh-response)
-          (when (not (refresh-response :error))
-            (update-account! account (refresh-response :profile) (refresh-response :feed)))))
-      (save-account! @account)
-      (print "profile:" (@account "public"))
-      (r/render [component-container account] (.getElementById js/document "app")))))
+(defn mount-root [& args]
+  (print "mount-root" args)
+  (if (nil? args)
+    ; restore our account from localStorage
+    (let [account (r/atom (or (load-account) (accounts/make-empty-account)))
+          keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
+          public-key-base58 (get-in @account ["keys" "public-key"])]
+      ; in dev mode bind account to window
+      (bind-account-to-window! account)
+      (print "Loaded data:" public-key-base58)
+      ; refresh nodes and account
+      (go
+        (when (= (count (get-nodes @account)) 0)
+          (print "Refreshing known-nodes list.")
+          (swap! account assoc-in ["cache" "known-good-nodes"] (<! (refresh-known-nodes (get-nodes @account)))))
+        (print "Known-nodes:" (get-nodes @account))
+        ; update the user's own account
+        (when (and (get-nodes @account) keypair)
+          (print "Refreshing account feed & profile.")
+          (let [node (rand-nth (get-nodes @account))
+                refresh-response (<! (bitwalden/refresh-account node keypair public-key-base58))]
+            ; if response swap account
+            (print "Response:" refresh-response)
+            (when (not (refresh-response :error))
+              (update-account! account (refresh-response :profile) (refresh-response :feed)))))
+        (save-account! @account)
+        (refresh-followers! account)
+        (print "profile:" (@account "public"))
+        (r/render [component-container account] (.getElementById js/document "app"))))
+    (print "Non-first load.")))
 
 (defn init! []
   (mount-root))
