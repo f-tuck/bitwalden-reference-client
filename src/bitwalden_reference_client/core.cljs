@@ -15,7 +15,9 @@
 (defonce account-debug (atom nil))
 
 (defn load-account []
-  (js->clj (js/JSON.parse (.getItem (aget js/window "localStorage") account-key))))
+  (let [raw-data (js/JSON.parse (.getItem (aget js/window "localStorage") account-key))]
+    (js/console.log "Account:" raw-data)
+    (js->clj raw-data)))
 
 (defn save-account! [account-data]
   (.setItem (aget js/window "localStorage") account-key (js/JSON.stringify (clj->js (dissoc account-data :state))))
@@ -24,7 +26,9 @@
 (defn update-account! [account profile feed]
   (swap! account #(-> %
                       (assoc-in ["public" "profile"] profile)
-                      (assoc-in ["public" "feed"] feed))))
+                      (assoc-in ["public" "feed"] feed)
+                      (assoc-in ["cache" "following" (profile "pk") "profile"] profile)
+                      (assoc-in ["cache" "following" (profile "pk") "feed"] feed))))
 
 (defn bind-account-to-window! [account]
   (reset! account-debug account)
@@ -50,6 +54,9 @@
 (defn get-nodes [account-data]
   (get-in account-data ["cache" "known-good-nodes"]))
 
+(defn now []
+  (.getTime (js/Date.)))
+
 (defn post! [post-ui account content ev]
   (print "post!")
   (swap! post-ui assoc :state :posting)
@@ -60,10 +67,8 @@
           keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
           post-struct (accounts/make-post (random-hex 32) content)
           node (rand-nth nodes)
-          _ (print "post-struct:" post-struct)
-          _ (print "node:" node)
           post-response (<! (bitwalden/add-post! node keypair post-struct profile feed))]
-      (print "response:" post-response)
+      (js/console.log "post! response:" (clj->js post-response))
       (if (post-response "error")
         (swap! post-ui assoc :state :error :error (post-response "message"))
         (do
@@ -77,26 +82,41 @@
   (go
     (let [refresh-response (<! (bitwalden/refresh-account node keypair public-key-base58))]
       ; if response swap account
-      (print "Response:" refresh-response)
+      (print "refresh-response:" refresh-response)
       (when (not (refresh-response :error))
         [(refresh-response :profile) (refresh-response :feed)]))))
 
 (defn refresh-followers! [account]
   (go
     (let [keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
-          following (get-in @account ["private" "following"])]
+          following (get-in @account ["private" "following"])
+          cached (get-in @account ["cache" "following"])]
+      (print "Following:" following)
       (when (and (get-nodes @account) keypair)
         (print "Refreshing follower accounts.")
-        (print "Following:" following)
-        ; TODO run these in parallel batches of 10
+        ; TODO: run these in parallel batches of 10
         (doseq [public-key-base58 following]
-          (do
-            (print "Refreshing" public-key-base58)
-            (add-processing-item! account (str "Refreshing " public-key-base58))
-            (let [[profile feed] (<! (refresh-account (rand-nth (get-nodes @account)) keypair public-key-base58))]
-              (if (and profile feed)
-                (swap! account assoc-in ["cache" "following" public-key-base58] {"profile" profile "feed" feed}))
-              (remove-processing-item! account (str "Refreshing " public-key-base58)))))))))
+          (if (< (get-in cached [public-key-base58 "updated"]) (- (now) (* 5 60 1000)))
+            (do
+              (print "Refreshing" public-key-base58)
+              (add-processing-item! account (str "Refreshing " public-key-base58))
+              (let [[profile feed] (<! (refresh-account (rand-nth (get-nodes @account)) keypair public-key-base58))]
+                (if (and profile feed)
+                  (swap! account assoc-in ["cache" "following" public-key-base58] {"profile" profile "feed" feed "updated" (now)}))
+                (remove-processing-item! account (str "Refreshing " public-key-base58))))
+            (print "Not refreshing" public-key-base58)))))))
+
+(defn merge-profile-into-feed-items [[public-key-base58 data]]
+  (map #(assoc % "profile" (data "profile"))
+       (get-in data ["feed" "items"])))
+
+(defn merge-posts [account-data]
+  (apply concat
+         (map merge-profile-into-feed-items
+              (get-in account-data ["cache" "following"]))))
+
+(defn sort-posts-by-date [merged-feed-items]
+  (reverse (sort-by #(get % "date_published") merged-feed-items)))
 
 ;; -------------------------
 ;; Views
@@ -139,6 +159,24 @@
             [:span.spinner " "]
             [:span "Post"])]]))))
 
+(defn component-feeds [account]
+  [:div
+   (for [f (sort-posts-by-date (merge-posts @account))]
+     (let [nom-de-plume (get-in f ["profile" "name"])]
+       (when (= (f "content_format") "markdown")
+         [:div#feed-item {:key (f "id")}
+          [:div.author
+           (comment [:img {:src (get-in f ["profile" "avatar-url"])}])
+           (when nom-de-plume [:span.name nom-de-plume])
+           [:span.public-key (get-in f ["profile" "pk"])]]
+          [:div.date (f "date_published")]
+          [:pre (f "content_text")]])))])
+
+(defn component-main [account]
+  [:div#hello
+   [component-interface account]
+   [component-feeds account]])
+
 (defn component-setup-profile [account]
   
   )
@@ -176,7 +214,7 @@
           (= (count (get-nodes @account)) 0) [component-no-nodes @account]
           (not (@account "keys")) [component-setup-keys account]
           ;(not (@account "profile")) [component-setup-profile account]
-          :else [component-interface account])]])))
+          :else [component-main account])]])))
 
 ;; -------------------------
 ;; Initialize app
