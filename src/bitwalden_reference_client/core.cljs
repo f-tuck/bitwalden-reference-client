@@ -125,6 +125,28 @@
 (defn sort-posts-by-date [merged-feed-items]
   (reverse (sort-by #(get % "date_published") merged-feed-items)))
 
+(defn add-public-key-to-follow! [account public-key-base58]
+  (swap! account update-in ["private" "following"]
+         (fn [following]
+           (vec (conj (set following) public-key-base58))))
+  (save-account! @account)
+  (refresh-followers! account))
+
+(defn update-private-key! [account new-private-key-base58]
+  (if (js/confirm "This will destroy the currently loaded account and replace it with the new one. Are you sure?")
+    (go
+      ; TODO: error checks
+      (let [keypair (keypair-from-private-key-b58 new-private-key-base58)
+            public-key-base58 (public-key-b58-from-keypair keypair)
+            nodes (get-nodes @account)]
+        (reset! account {"keys" {"private-key" new-private-key-base58 "public-key" public-key-base58}
+                         "cache" {"known-good-nodes" nodes}})
+        (save-account! @account)
+
+        (<! (refresh-own-account! account))
+        (save-account! @account)
+        (refresh-followers! account)))))
+
 ;; -------------------------
 ;; Views
 
