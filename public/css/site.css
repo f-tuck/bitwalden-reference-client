@@ -45,12 +45,17 @@ body {
   margin-top: 50%;
 }
 
-#indicator {
+#actions {
   position: absolute;
   top: 1em;
   right: 1em;
   font-size: 2em;
   cursor: pointer;
+}
+
+#actions > * {
+  float: right;
+  margin-left: 0.3em;
 }
 
 /*** generic styles ***/
@@ -163,7 +168,7 @@ ul li:before {
 
 /*** inputs etc. ***/
 
-textarea {
+textarea, input {
   width: 100%;
   border: 2px solid #ddd;
   border-radius: 4px;
@@ -194,6 +199,13 @@ button:disabled {
   cursor: auto;
 }
 
+button.danger {
+  border: 2px solid #F176A3;
+  border-radius: 4px;
+  padding: 0.25em;
+  background-color: #F176A3;
+}
+
 /*** posting ***/
 
 #post.is-posting textarea {
@@ -207,4 +219,26 @@ button:disabled {
 
 .error {
   color: #F176A3;
+}
+
+/*** feed ***/
+
+.feed-item .handle {
+  font-family: Arial;
+  display: block;
+}
+
+.feed-item .public-key {
+  color: #666;
+  font-size: 0.75em;
+}
+
+.feed-item .date {
+  text-align: right;
+  font-size: 0.8em;
+  font-family: Arial;
+}
+
+.feed-item .author {
+  border-bottom: 1px solid #ccc;
 }
