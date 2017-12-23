@@ -5,7 +5,7 @@
     [bitwalden-client-lib.core :as bitwalden]
     [bitwalden-client-lib.rpc :refer [refresh-known-nodes]]
     [bitwalden-client-lib.data :as accounts]
-    [bitwalden-client-lib.crypto :refer [generate-keypair-seed-b58 keypair-from-seed-b58 public-key-b58-from-keypair]]
+    [bitwalden-client-lib.crypto :refer [generate-keypair-seed-b58 keypair-from-seed-b58 keypair-from-private-key-b58 public-key-b58-from-keypair private-key-b58-from-keypair]]
     [bitwalden-client-lib.util :refer [random-hex]])
   (:require-macros
     [cljs.core.async.macros :refer [go]]))
@@ -45,6 +45,13 @@
                         (assoc-in ["private" "following"] ["TuckJdmdsXkjrh7rUPtPTDKp7SMhKnj918HT7zNKN2v" pk])))
     (save-account! @account)))
 
+(defn get-keypair [account-data]
+  (let [seed (get-in account-data ["keys" "seed"])
+        private-key (get-in account-data ["keys" "private-key"])]
+    (cond
+      seed (keypair-from-seed-b58 seed)
+      private-key (keypair-from-private-key-b58 private-key))))
+
 (defn add-processing-item! [account id]
   (swap! account update-in [:state :processing] #(into #{id} %)))
 
@@ -64,7 +71,7 @@
     (let [nodes (get-in @account ["cache" "known-good-nodes"])
           profile (get-in @account ["public" "profile"])
           feed (get-in @account ["public" "feed"])
-          keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
+          keypair (get-keypair @account)
           post-struct (accounts/make-post (random-hex 32) content)
           node (rand-nth nodes)
           post-response (<! (bitwalden/add-post! node keypair post-struct profile feed))]
@@ -88,7 +95,7 @@
 
 (defn refresh-followers! [account]
   (go
-    (let [keypair (keypair-from-seed-b58 (get-in @account ["keys" "seed"]))
+    (let [keypair (get-keypair @account)
           following (get-in @account ["private" "following"])
           cached (get-in @account ["cache" "following"])]
       (print "Following:" following)
