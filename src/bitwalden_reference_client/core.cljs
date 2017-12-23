@@ -64,6 +64,10 @@
 (defn now []
   (.getTime (js/Date.)))
 
+(defn format-date [s]
+  (let [d (js/Date. s)]
+    (str (.getFullYear d) "-" (.getMonth d) "-" (.getDate d) " " (.getHours d) ":" (.getMinutes d))))
+
 (defn post! [post-ui account content ev]
   (print "post!")
   (swap! post-ui assoc :state :posting)
