@@ -113,6 +113,21 @@
                 (remove-processing-item! account (str "Refreshing " public-key-base58))))
             (print "Not refreshing" public-key-base58)))))))
 
+(defn refresh-own-account! [account]
+  (let [keypair (get-keypair @account)
+        public-key-base58 (public-key-b58-from-keypair keypair)
+        node (rand-nth (get-nodes @account))]
+    (go
+      (add-processing-item! account (str "Refreshing own account"))
+      (when (and node keypair)
+        (print "Refreshing account feed & profile from:" node)
+        (let [refresh-response (<! (bitwalden/refresh-account node keypair public-key-base58))]
+          ; if response swap account
+          (print "Response:" refresh-response)
+          (remove-processing-item! account (str "Refreshing own account"))
+          (when (not (refresh-response :error))
+            (update-account! account (refresh-response :profile) (refresh-response :feed))))))))
+
 (defn merge-profile-into-feed-items [[public-key-base58 data]]
   (map #(assoc % "profile" (data "profile"))
        (get-in data ["feed" "items"])))
