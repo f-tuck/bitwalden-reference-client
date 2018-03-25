@@ -208,6 +208,10 @@ button.danger {
 
 /*** posting ***/
 
+#post {
+  margin-bottom: 3em;
+}
+
 #post.is-posting textarea {
   opacity: 0.5;
   disabled: true;
@@ -237,6 +241,7 @@ button.danger {
   text-align: right;
   font-size: 0.8em;
   font-family: Arial;
+  float: right;
 }
 
 .feed-item .author {
