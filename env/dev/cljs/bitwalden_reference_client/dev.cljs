@@ -1,6 +1,6 @@
 (ns ^:figwheel-no-load bitwalden-reference-client.dev
   (:require
-    [bitwalden-reference-client.core :as core]
+    [bitwalden-reference-client.ui :as ui]
     [devtools.core :as devtools]))
 
 
@@ -8,4 +8,4 @@
 
 (devtools/install!)
 
-(core/init!)
+(ui/init!)

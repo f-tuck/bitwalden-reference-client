@@ -16,3 +16,6 @@ pom.xml.asc
 *.log
 /.env
 node_modules
+package.json
+package-lock.json
+/workspace

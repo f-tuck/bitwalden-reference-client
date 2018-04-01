@@ -2,11 +2,11 @@
   (:require
     [reagent.core :as r]
     [cljs.core.async :refer [<!]]
-    [bitwalden-client-lib.core :as bitwalden]
-    [bitwalden-client-lib.rpc :refer [refresh-known-nodes]]
-    [bitwalden-client-lib.data :as accounts]
-    [bitwalden-client-lib.crypto :refer [generate-keypair-seed-b58 keypair-from-seed-b58 keypair-from-private-key-b58 public-key-b58-from-keypair private-key-b58-from-keypair]]
-    [bitwalden-client-lib.util :refer [random-hex]])
+    [bitwalden-reference-client.lib.core :as bitwalden]
+    [bitwalden-reference-client.lib.rpc :refer [refresh-known-nodes]]
+    [bitwalden-reference-client.lib.data :as accounts]
+    [bitwalden-reference-client.lib.crypto :refer [generate-keypair-seed-b58 keypair-from-seed-b58 keypair-from-private-key-b58 public-key-b58-from-keypair private-key-b58-from-keypair]]
+    [bitwalden-reference-client.lib.util :refer [random-hex]])
   (:require-macros
     [cljs.core.async.macros :refer [go]]))
 
@@ -41,8 +41,7 @@
         sk (private-key-b58-from-keypair keypair)]
     (swap! account #(-> %
                         (assoc "keys" {"private-key" sk "public-key" pk})
-                        (assoc-in ["public" "feed"] (accounts/make-json-feed pk))
-                        (assoc-in ["public" "profile"] (accounts/make-profile pk))
+                        (assoc "public" {"feed" (accounts/make-json-feed pk) "profile" (accounts/make-profile pk)})
                         (assoc-in ["private" "following"] ["TuckJdmdsXkjrh7rUPtPTDKp7SMhKnj918HT7zNKN2v" pk])))
     (save-account! @account)))
 
@@ -67,7 +66,7 @@
 
 (defn format-date [s]
   (let [d (js/Date. s)]
-    (str (.getFullYear d) "-" (.getMonth d) "-" (.getDate d) " " (.getHours d) ":" (.getMinutes d))))
+    (str (.getFullYear d) "-" (inc (.getMonth d)) "-" (.getDate d) " " (.getHours d) ":" (.getMinutes d))))
 
 (defn post! [post-ui account content ev]
   (print "post!")
@@ -80,11 +79,12 @@
           post-struct (accounts/make-post (random-hex 32) content)
           node (rand-nth nodes)
           post-response (<! (bitwalden/add-post! node keypair post-struct profile feed))]
-      (js/console.log "post! response:" (clj->js post-response))
+      (js/console.log "post! response:" node (clj->js post-response))
       (if (post-response "error")
         (swap! post-ui assoc :state :error :error (post-response "message"))
         (do
-          (update-account! account (post-response :profile) (post-response :feed))
+          (when (and (post-response :profile) (post-response :feed))
+            (update-account! account (post-response :profile) (post-response :feed)))
           (swap! post-ui assoc :state nil :post "" :error nil)
           (save-account! @account)))))
   (.preventDefault ev)
@@ -138,12 +138,14 @@
 
 (defn merge-profile-into-feed-items [[public-key-base58 data]]
   (map #(assoc % "profile" (data "profile"))
-       (get-in data ["feed" "items"])))
+       (set (get-in data ["feed" "items"]))))
 
 (defn merge-posts [account-data]
-  (apply concat
-         (map merge-profile-into-feed-items
-              (get-in account-data ["cache" "following"]))))
+  (vec
+    (set
+      (apply concat
+             (map merge-profile-into-feed-items
+                  (get-in account-data ["cache" "following"]))))))
 
 (defn sort-posts-by-date [merged-feed-items]
   (reverse (sort-by #(get % "date_published") merged-feed-items)))
@@ -215,15 +217,19 @@
 (defn component-feeds [account]
   [:div
    (for [f (sort-posts-by-date (merge-posts @account))]
-     (let [handle (get-in f ["profile" "handle"])]
-       (when (= (f "content_format") "markdown")
-         [:div.feed-item {:key (f "id")}
-          [:div.date (format-date (f "date_published"))]
-          [:div.author
-           (comment [:img {:src (get-in f ["profile" "avatar-url"])}])
-           (when handle [:span.handle handle])
-           [:span.public-key (get-in f ["profile" "pk"])]]
-          [:pre (f "content_text")]])))])
+     (do
+       ;(print "f id:" (str f))
+       (let [handle (get-in f ["profile" "handle"])]
+         (when (= (f "content_format") "markdown")
+           (with-meta
+             [:div.feed-item
+              [:div.date (format-date (f "date_published"))]
+              [:div.author
+               (comment [:img {:src (get-in f ["profile" "avatar-url"])}])
+               (when handle [:span.handle handle])
+               [:span.public-key (get-in f ["profile" "pk"])]]
+              [:pre (f "content_text")]]
+             {:key (f "id")})))))])
 
 (defn component-main [account]
   [:div#main
@@ -263,7 +269,7 @@
   (fn []
     [:div.interface
      [:h3 "You don't seem to have an account yet."]
-     [:p "A Bitwalden account is a cryptographic key pair that you keep on your device."]
+     [:p "A Bitwalden account is secured with a cryptographic key pair."]
      [:button {:on-click (partial create-new-account! account)} "Create a new key pair now"]]))
 
 (defn component-no-nodes [account-data]
@@ -280,14 +286,16 @@
 (defn component-container [account]
   (let [page (r/atom nil)]
     (fn []
-      (let [processing (> (count (get-in @account [:state :processing])) 0)]
+      (let [processing-items (get-in @account [:state :processing])
+            processing (> (count processing-items) 0)
+            processing-txt (clojure.string/join "\n" processing-items)]
         [:div
          [:div#logo
           [:h2 "Bitwalden"]
           [:h3 "reference client"]]
          [:div#actions
           (if processing
-            [:span#indicator.spinner]
+            [:span#indicator.spinner {:title processing-txt :alt processing-txt}]
             [:span#indicator {:on-click #(refresh-followers! account)} "↺"])
           [:span {:on-click #(swap! page (fn [p] (if (nil? p) "config")))} "⛭"]]
          [:div#content
