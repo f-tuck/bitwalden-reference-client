@@ -96,7 +96,7 @@
         c (chan)]
     (go
       (let [start (now)
-            new-uid (<! (<json-rpc node keypair "torrent-fetch" {:infohash infohash :u uid}))]
+            new-uid (<! (<json-rpc node keypair "torrent-fetch-queued" {:infohash infohash :u uid}))]
         (when new-uid
           (put! c {"uid" new-uid})
           (loop [after 0]
