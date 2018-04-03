@@ -54,7 +54,6 @@
 (defn dht-compute-sig [keypair params]
   (let [params-encoded (string-to-uint8array (bencode/encode (clj->js params)))
         sig-unit (.slice params-encoded 1 (- (.-length params-encoded) 1))]
-    (print "sig-unit" sig-unit)
     (hexenate (nacl.sign.detached sig-unit (.-secretKey keypair)))))
 
 (defn with-signature [keypair params]
