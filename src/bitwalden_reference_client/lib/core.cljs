@@ -1,17 +1,14 @@
 (ns bitwalden-reference-client.lib.core
   (:require
     [cljs.core.async :refer [chan put! <! close!]]
+    [clojure.walk :refer [keywordize-keys]]
     ["bencode-js/lib/index" :as bencode]
-    [bitwalden-reference-client.lib.crypto :refer [public-key-b58-from-keypair keypair-from-seed-b58 dht-compute-sig]]
-    [bitwalden-reference-client.lib.util :refer [random-hex dht-address is-magnet-url magnet-get-infohash magnet-link now]]
+    [bitwalden-reference-client.lib.crypto :refer [public-key-b58-from-keypair keypair-from-seed-b58 sign-datastructure]]
+    [bitwalden-reference-client.lib.util :refer [debug random-hex dht-address is-magnet-url magnet-get-infohash magnet-link now]]
     [bitwalden-reference-client.lib.rpc :refer [<api <json-rpc refresh-known-nodes]]
     [bitwalden-reference-client.lib.data :refer [make-profile make-json-feed make-post]])
   (:require-macros
     [cljs.core.async.macros :refer [go]]))
-
-(defn debug [& args]
-  (if (aget js/localStorage "debug")
-    (apply js/console.log (js->clj args))))
 
 (def profile-namespace "bw.profile")
 
@@ -76,7 +73,7 @@
               dht-get-params {:addresshash (dht-address public-key-base58 profile-namespace) :salt profile-namespace}
               result (<! (<json-rpc node keypair "dht-get" dht-get-params))
               dht-params {:v datastructure-bencoded :seq (if result (inc (result "seq")) 1) :salt profile-namespace}
-              sig (dht-compute-sig keypair dht-params)
+              sig (sign-datastructure keypair dht-params)
               post-data (merge dht-params {:k public-key-base58 :s.dht sig})
               ; post to nodes
               response (<! (<json-rpc node keypair "dht-put" post-data))]
@@ -159,16 +156,22 @@
 (defn refresh-account [node keypair public-key-base58]
   (go
     (let [profile (<! (profile-fetch node keypair public-key-base58))
-          profile-data (if (and profile (get profile "v")) (into {} (doall (map (fn [[k v]] [k (if v (.toString v))]) (js->clj (bencode/decode (profile "v")))))))]
-      ; TODO: verify stored sig in "s.dht" field
-      (debug profile-data)
-      (if profile-data
-        (if (= (profile-data "pk") public-key-base58)
-          (let [feed-url (profile-data "feed-url")
-                feed (if feed-url (<! (content-get node keypair feed-url)))]
-            {:profile profile-data :feed (if (and feed (not (feed :error)) (feed :content)) (feed :content))})
-          {:error true :message "Public key did not match." :code 400})
-        {:error true :message "No profile data returned."}))))
+          profile-data (if (and profile (get profile "v"))
+                         (into {} (doall (map (fn [[k v]] [k (if v (.toString v))]) (js->clj (bencode/decode (profile "v"))))))
+                         profile)
+          profile-data-keywords (keywordize-keys profile-data)]
+      (debug "profile-data" profile-data)
+      (if (get profile-data-keywords :error)
+        profile-data-keywords
+        (do
+          ; TODO: verify stored sig in "s.dht" field
+          (if profile-data
+            (if (= (profile-data "pk") public-key-base58)
+              (let [feed-url (profile-data "feed-url")
+                    feed (if feed-url (<! (content-get node keypair feed-url)))]
+                {:profile profile-data :feed (if (and feed (not (feed :error)) (feed :content)) (feed :content))})
+              {:error true :message "Public key did not match." :code 400})
+            {:error true :message "No profile data returned."}))))))
 
 ; add post
 ; (go (print (<! (add-post! (nodes 0) keypair (make-post (random-hex 16) "Beep boop. Hello.")))))

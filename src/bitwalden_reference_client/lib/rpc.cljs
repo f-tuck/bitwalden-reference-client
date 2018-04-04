@@ -1,7 +1,7 @@
 (ns bitwalden-reference-client.lib.rpc
   (:require 
-    [bitwalden-reference-client.lib.crypto :refer [public-key-b58-from-keypair with-signature dht-compute-sig]]
-    [bitwalden-reference-client.lib.util :refer [with-timestamp random-hex]]
+    [bitwalden-reference-client.lib.crypto :refer [public-key-b58-from-keypair with-signature]]
+    [bitwalden-reference-client.lib.util :refer [with-timestamp random-hex debug]]
     [cljs.core.async :refer [chan put! <! close!]]
     [ajax.core :refer [GET POST]])
   (:require-macros [cljs.core.async.macros :refer [go]]))
@@ -16,6 +16,7 @@
 (defn <json-rpc [node keypair method params]
   (go (let [signed-timestamped-params (with-signature keypair (with-timestamp (merge params {:k (public-key-b58-from-keypair keypair)})))
             [code response] (<! (<api :post (str node "/bw/rpc") {:params {"jsonrpc" "2.0" "method" method "id" (random-hex 32) "params" signed-timestamped-params} :format :json}))]
+        ;(debug "signed-timestamped-params" signed-timestamped-params)
         ; [:ok {jsonrpc 2.0, id 1, result {pong true, c 12}}]
         (if (and (= code :ok) (response "result"))
           (response "result")

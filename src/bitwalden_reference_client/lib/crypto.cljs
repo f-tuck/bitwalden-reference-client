@@ -1,8 +1,7 @@
 (ns bitwalden-reference-client.lib.crypto
   (:require [alphabase.base58 :as b58]
             [cljsjs.nacl-fast :as nacl]
-            ["bencode-js/lib/index" :as bencode]
-            [bitwalden-reference-client.lib.util :refer [string-to-uint8array hexenate]]))
+            [bitwalden-reference-client.lib.util :refer [debug string-to-uint8array uint8array-to-string join-uint8arrays bencode-parameters-uint8array hexenate unhexenate]]))
 
 ; --- key management --- ;
 
@@ -49,15 +48,41 @@
 (defn generate-keypair-seed-b58 []
   (b58/encode (nacl.randomBytes 32)))
 
+(defn box-key-from-seed [seed salt]
+  (-> seed
+      (join-uint8arrays (string-to-uint8array salt))
+      (nacl.hash)
+      (.slice 0 32)))
+
+; derive from 128 bit seed so that:
+; * easier for user to pass around
+; * keys deterministically derivable
+
 ; --- crypto helpers --- ;
 
-(defn dht-compute-sig [keypair params]
-  (let [params-encoded (string-to-uint8array (bencode/encode (clj->js params)))
-        sig-unit (.slice params-encoded 1 (- (.-length params-encoded) 1))]
-    (hexenate (nacl.sign.detached sig-unit (.-secretKey keypair)))))
+(defn sign-datastructure [keypair params]
+  (debug "params" keypair params)
+  (let [params-encoded (bencode-parameters-uint8array params)
+        signature-hex (hexenate (nacl.sign.detached params-encoded (.-secretKey keypair)))]
+    (debug "params-encoded" params-encoded)
+    signature-hex))
 
 (defn with-signature [keypair params]
-  (let [params-encoded (string-to-uint8array (bencode/encode (clj->js params)))
-        signature (hexenate (nacl.sign.detached params-encoded (.-secretKey keypair)))]
-    (assoc params :s signature)))
+  (assoc params "s" (sign-datastructure keypair params)))
 
+(defn verify-signed-datastructure [public-key-base58 params]
+  (let [sig (unhexenate (get params "s"))
+        params-encoded (bencode-parameters-uint8array (dissoc params "s"))
+        pk (b58/decode public-key-base58)]
+    (nacl.sign.detached.verify params-encoded sig pk)))
+
+(defn secret-box-encrypt [salt seed plaintext]
+  (let [k (box-key-from-seed seed salt)
+        n (nacl.randomBytes 24)]
+    (join-uint8arrays n (nacl.secretbox (string-to-uint8array plaintext)))))
+
+(defn secret-box-decrypt [salt seed cyphertext]
+  (let [k (box-key-from-seed seed salt)
+        n (.slice cyphertext 0 24)
+        box (.slice cyphertext 24)]
+    (uint8array-to-string (nacl.secretbox.open box n k))))
