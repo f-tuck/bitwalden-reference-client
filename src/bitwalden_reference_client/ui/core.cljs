@@ -1,4 +1,4 @@
-(ns bitwalden-reference-client.ui
+(ns bitwalden-reference-client.ui.core
     (:require
       [reagent.core :as r]
       [bitwalden-reference-client.core :as client]))
