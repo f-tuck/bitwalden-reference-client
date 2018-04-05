@@ -36,18 +36,20 @@
                          :output-dir "public/js/out"
                          :asset-path   "js/out"
                          :source-map true
-                         :install-deps true
+                         :install-deps false
                          :npm-deps {"bencode-js" "0.0.8"}
                          :optimizations :none
                          :pretty-print true}
                         :figwheel
-                        {:on-jsload "bitwalden-reference-client.ui/mount-root"}}
+                        {:on-jsload "bitwalden-reference-client.ui.core/mount-root"}}
                        :release
                        {:source-paths ["src" "env/prod/cljs"]
                         :compiler
                         {:output-to "public/js/app.js"
                          :output-dir "public/js/release"
                          :asset-path   "js/out"
+                         :install-deps false
+                         :npm-deps {"bencode-js" "0.0.8"}
                          :optimizations :advanced
                          :pretty-print false}}}}
 

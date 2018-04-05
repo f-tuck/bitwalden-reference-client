@@ -21,3 +21,19 @@
    "cache" {"known-good-nodes" [] "feeds" []}
    "keys" nil})
 
+; *** utilities for manipulating data *** ;
+
+(defn merge-profile-into-feed-items [[public-key-base58 data]]
+  (map #(assoc % "profile" (data "profile"))
+       (set (get-in data ["feed" "items"]))))
+
+(defn merge-posts [account-data]
+  (vec
+    (set
+      (apply concat
+             (map merge-profile-into-feed-items
+                  (get-in account-data ["cache" "following"]))))))
+
+(defn sort-posts-by-date [merged-feed-items]
+  (reverse (sort-by #(get % "date_published") merged-feed-items)))
+

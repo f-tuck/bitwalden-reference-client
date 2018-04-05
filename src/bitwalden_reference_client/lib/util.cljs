@@ -53,6 +53,10 @@
 (defn is-magnet-url [url]
   (= (.indexOf url magnet-prefix) 0))
 
+(defn format-date [s]
+  (let [d (js/Date. s)]
+    (str (.getFullYear d) "-" (inc (.getMonth d)) "-" (.getDate d) " " (.getHours d) ":" (.getMinutes d))))
+
 ; --- utils --- ;
 
 (defn now []
